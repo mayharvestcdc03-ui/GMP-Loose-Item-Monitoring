@@ -165,8 +165,35 @@ label.check{cursor:pointer}.check input{width:18px;height:18px;flex:none}
 <div class="panel">
 <h2>Break Out / Break In</h2>
 <p class="muted">Log personnel leaving (Break Out) and returning (Break In) for break. Only personnel with an “Allow Enter” decision who have not yet timed out are listed. Time Out is blocked while a person is on break.</p>
-<div class="grid no-print"><div class="field"><label>Search Personnel / Company</label><input id="breakSearch" placeholder="Search"></div><div class="field"><label>Break Log Date</label><input type="date" id="breakDate"></div></div>
-<h3>Personnel Currently Inside</h3>
+<div class="grid no-print">
+<div class="field"><label>Search Personnel / Company</label><input id="breakSearch" placeholder="Search name or company"></div>
+<div class="field"><label>Filter by Area</label><select id="breakAreaFilter"><option value="">All Areas</option></select></div>
+<div class="field"><label>Filter Status</label><select id="breakStatusFilter"><option value="all">All (Inside & On Break)</option><option value="inside">Inside Only (Ready to Break Out)</option><option value="onbreak">On Break Only (Ready to Break In)</option></select></div>
+<div class="field"><label>Break Log Date</label><input type="date" id="breakDate"></div>
+</div>
+
+<!-- Bultuhang / Batch Actions Bar -->
+<div class="no-print" style="background:#eaf5ee;border:1.5px solid #238052;border-radius:10px;padding:14px;margin:14px 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+    <b style="font-size:14px;color:#124d35">⚡ Bultuhang Break Out / Break In (Per Area o Selected)</b>
+    <span id="batchCountBadge" class="status neutral" style="font-size:12px;font-weight:700">0 napili</span>
+  </div>
+  
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <button type="button" class="secondary" id="btnSelectAllBreaks" onclick="toggleSelectAllBreaks()">Piliin Lahat (Select All)</button>
+    <button type="button" id="btnBatchBreakOut" onclick="batchBreakOutSelected()" style="background:#b9770e;color:#fff">☕ Sabay-sabay na Break Out (Selected)</button>
+    <button type="button" id="btnBatchBreakIn" onclick="batchBreakInSelected()" style="background:#16804a;color:#fff">🔙 Sabay-sabay na Break In (Selected)</button>
+  </div>
+
+  <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #9bc5aa;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <label style="font-size:12px;font-weight:700;color:#124d35">Isang Pindot para sa Buong Area:</label>
+    <select id="quickAreaSelect" style="max-width:240px;min-height:36px;padding:6px 10px"><option value="">-- Pumili ng Area --</option></select>
+    <button type="button" onclick="breakOutEntireArea()" style="background:#9a6700;color:#fff;padding:8px 14px">☕ Break Out Buong Area</button>
+    <button type="button" onclick="breakInEntireArea()" style="background:#176b45;color:#fff;padding:8px 14px">🔙 Break In Buong Area</button>
+  </div>
+</div>
+
+<h3>Personnel Currently Inside / On Break</h3>
 <div id="breakInside"></div>
 <h3>Break Log</h3>
 <div id="breakLog"></div>
@@ -481,12 +508,127 @@ function syncAtt(){records.forEach(r=>{att[r.id]={id:r.id,date:dayKey(r),person:
 window.breakOut=id=>{let r=records.find(x=>x.id===id);if(!r||r.timeOut||r.status!=='Allow Enter')return;r.breaks=r.breaks||[];if(openBrk(r)){alert('This person is already on break.');return}
 let t=prompt('Accounted loose items at Break Out (edit if different, or leave as is):',looseText(r));if(t===null)return;r.breaks.push({out:new Date().toISOString(),in:'',outItems:t.trim()});save();renderBreaks()};
 window.breakIn=id=>{let r=records.find(x=>x.id===id),b=r&&openBrk(r);if(!b)return;let t=prompt('Accounted loose items at Break In (edit if different, or leave as is):',b.outItems!==undefined?b.outItems:looseText(r));if(t===null)return;b.inItems=t.trim();b.in=new Date().toISOString();save();renderBreaks()};
-function renderBreaks(){let q=$('breakSearch').value.toLowerCase(),d=$('breakDate').value||ymd(new Date());
-let ins=records.filter(r=>r.status==='Allow Enter'&&!r.timeOut&&(r.person+' '+r.agency).toLowerCase().includes(q)).sort((a,b)=>new Date(tIn(a))-new Date(tIn(b)));
-$('breakInside').innerHTML=ins.length?`<div style="overflow:auto"><table><thead><tr><th>Personnel</th><th>Company / Agency / Area</th><th>Time In</th><th>Status</th><th>Breaks Taken</th><th class="no-print">Action</th></tr></thead><tbody>${ins.map(r=>{let b=openBrk(r),n=(r.breaks||[]).length;return `<tr><td><b>${esc(r.person)}</b></td><td>${esc(r.agency)}<br>${esc(r.area)}${shf(r)}</td><td>${fmt(tIn(r))}</td><td>${b?`<span class="status pending">On Break since ${new Date(b.out).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span>`:'<span class="status verified">Inside</span>'}</td><td>${n?n+' • '+dur(breakMs(r)):'—'}</td><td class="no-print">${b?`<button class="small" onclick="breakIn('${r.id}')">Break In</button>`:`<button class="small secondary" onclick="breakOut('${r.id}')">Break Out</button>`}</td></tr>`}).join('')}</tbody></table></div>`:'<p class="muted">No personnel are currently inside. Only personnel with an “Allow Enter” decision who have not timed out appear here.</p>';
-let log=[];records.forEach(r=>(r.breaks||[]).forEach(b=>{if(ymd(new Date(b.out))===d)log.push({r,b})}));log.sort((x,y)=>new Date(x.b.out)-new Date(y.b.out));
-$('breakLog').innerHTML=log.length?`<div style="overflow:auto"><table><thead><tr><th>#</th><th>Personnel</th><th>Company / Agency</th><th>Break Out</th><th>Break In</th><th>Duration</th><th>Loose Items at Break Out</th><th>Loose Items at Break In</th></tr></thead><tbody>${log.map((x,n)=>`<tr><td>${n+1}</td><td><b>${esc(x.r.person)}</b></td><td>${esc(x.r.agency)}</td><td>${fmt(x.b.out)}</td><td>${x.b.in?fmt(x.b.in):'<span class="status pending">On break</span>'}</td><td>${dur((x.b.in?new Date(x.b.in):new Date())-new Date(x.b.out))}</td><td>${esc(x.b.outItems||'—')}</td><td>${x.b.in?esc(x.b.inItems||'—'):'—'}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No breaks logged on this date.</p>'}
-$('breakSearch').oninput=renderBreaks;$('breakDate').onchange=renderBreaks;
+
+window.updateBatchBadge=function(){
+  let checked=document.querySelectorAll('.brk-chk:checked');
+  let count=checked.length;
+  let badge=$('batchCountBadge');
+  if(badge)badge.textContent=count+' napili';
+  let master=$('chkAllBreak');
+  let allChks=document.querySelectorAll('.brk-chk');
+  if(master&&allChks.length)master.checked=(count===allChks.length);
+};
+
+window.toggleAllBreakRows=function(master){
+  document.querySelectorAll('.brk-chk').forEach(c=>{c.checked=master.checked;});
+  updateBatchBadge();
+};
+
+window.toggleSelectAllBreaks=function(){
+  let allChks=document.querySelectorAll('.brk-chk');
+  if(!allChks.length)return;
+  let anyUnchecked=Array.from(allChks).some(c=>!c.checked);
+  allChks.forEach(c=>{c.checked=anyUnchecked;});
+  let master=$('chkAllBreak');
+  if(master)master.checked=anyUnchecked;
+  updateBatchBadge();
+};
+
+window.batchBreakOutSelected=function(){
+  let checkedIds=Array.from(document.querySelectorAll('.brk-chk:checked')).map(c=>c.dataset.id);
+  if(!checkedIds.length){alert('Pumili muna ng mga personnel gamit ang checkboxes.');return;}
+  let targets=records.filter(r=>checkedIds.includes(r.id)&&r.status==='Allow Enter'&&!r.timeOut&&!openBrk(r));
+  if(!targets.length){alert('Walang napiling personnel na kasalukuyang nasa loob (maaaring naka-break na sila).');return;}
+  if(!confirm('Kumpirmahin: Sabay-sabay na i-break out ang '+targets.length+' personnel? Awtomatikong itatala ang kanilang loose items.'))return;
+  let nowIso=new Date().toISOString();
+  targets.forEach(r=>{r.breaks=r.breaks||[];r.breaks.push({out:nowIso,in:'',outItems:looseText(r)});});
+  save();renderBreaks();alert('Tagumpay na nai-break out ang '+targets.length+' personnel!');
+};
+
+window.batchBreakInSelected=function(){
+  let checkedIds=Array.from(document.querySelectorAll('.brk-chk:checked')).map(c=>c.dataset.id);
+  if(!checkedIds.length){alert('Pumili muna ng mga personnel gamit ang checkboxes.');return;}
+  let targets=records.filter(r=>checkedIds.includes(r.id)&&r.status==='Allow Enter'&&!r.timeOut&&openBrk(r));
+  if(!targets.length){alert('Walang napiling personnel na kasalukuyang naka-break.');return;}
+  if(!confirm('Kumpirmahin: Sabay-sabay na i-break in ang '+targets.length+' personnel?'))return;
+  let nowIso=new Date().toISOString();
+  targets.forEach(r=>{let b=openBrk(r);if(b){b.in=nowIso;b.inItems=b.outItems!==undefined?b.outItems:looseText(r);}});
+  save();renderBreaks();alert('Tagumpay na nai-break in ang '+targets.length+' personnel!');
+};
+
+window.breakOutEntireArea=function(){
+  let area=$('quickAreaSelect').value||$('breakAreaFilter').value;
+  if(!area){alert('Pumili muna ng Area na nais i-break out (hal. Basic-Hanging).');$('quickAreaSelect').focus();return;}
+  let targets=records.filter(r=>r.status==='Allow Enter'&&!r.timeOut&&r.area===area&&!openBrk(r));
+  if(!targets.length){alert('Walang personnel sa area na "'+area+'" na kasalukuyang nasa loob.');return;}
+  if(!confirm('Kumpirmahin: Sabay-sabay na i-break out ang LAHAT ng '+targets.length+' personnel sa "'+area+'"?'))return;
+  let nowIso=new Date().toISOString();
+  targets.forEach(r=>{r.breaks=r.breaks||[];r.breaks.push({out:nowIso,in:'',outItems:looseText(r)});});
+  save();renderBreaks();alert('Tagumpay na nai-break out ang buong '+area+' ('+targets.length+' personnel)!');
+};
+
+window.breakInEntireArea=function(){
+  let area=$('quickAreaSelect').value||$('breakAreaFilter').value;
+  if(!area){alert('Pumili muna ng Area na nais i-break in (hal. Basic-Hanging).');$('quickAreaSelect').focus();return;}
+  let targets=records.filter(r=>r.status==='Allow Enter'&&!r.timeOut&&r.area===area&&openBrk(r));
+  if(!targets.length){alert('Walang personnel sa area na "'+area+'" na kasalukuyang naka-break.');return;}
+  if(!confirm('Kumpirmahin: Sabay-sabay na i-break in ang LAHAT ng '+targets.length+' personnel sa "'+area+'"?'))return;
+  let nowIso=new Date().toISOString();
+  targets.forEach(r=>{let b=openBrk(r);if(b){b.in=nowIso;b.inItems=b.outItems!==undefined?b.outItems:looseText(r);}});
+  save();renderBreaks();alert('Tagumpay na nai-break in ang buong '+area+' ('+targets.length+' personnel)!');
+};
+
+function renderBreaks(){
+  let q=$('breakSearch').value.toLowerCase();
+  let d=$('breakDate').value||ymd(new Date());
+  let selArea=$('breakAreaFilter')?$('breakAreaFilter').value:'';
+  let selStatus=$('breakStatusFilter')?$('breakStatusFilter').value:'all';
+
+  let allActive=records.filter(r=>r.status==='Allow Enter'&&!r.timeOut);
+  let areas=[...new Set(allActive.map(r=>r.area).filter(Boolean))].sort();
+
+  if($('breakAreaFilter')&&$('quickAreaSelect')){
+    let curFilter=$('breakAreaFilter').value;
+    let curQuick=$('quickAreaSelect').value;
+    $('breakAreaFilter').innerHTML='<option value="">All Areas</option>'+areas.map(a=>`<option value="${esc(a)}" ${a===curFilter?'selected':''}>${esc(a)}</option>`).join('');
+    $('quickAreaSelect').innerHTML='<option value="">-- Pumili ng Area --</option>'+areas.map(a=>`<option value="${esc(a)}" ${a===curQuick?'selected':''}>${esc(a)}</option>`).join('');
+  }
+
+  let ins=allActive.filter(r=>{
+    let b=openBrk(r);
+    let matchQ=(r.person+' '+(r.agency||'')+' '+(r.area||'')).toLowerCase().includes(q);
+    let matchArea=!selArea||r.area===selArea;
+    let matchStatus=selStatus==='all'||(selStatus==='inside'&&!b)||(selStatus==='onbreak'&&b);
+    return matchQ&&matchArea&&matchStatus;
+  }).sort((a,b)=>new Date(tIn(a))-new Date(tIn(b)));
+
+  $('breakInside').innerHTML=ins.length?`<div style="overflow:auto"><table><thead><tr><th class="no-print" style="width:36px;text-align:center"><input type="checkbox" id="chkAllBreak" onchange="toggleAllBreakRows(this)" title="Piliin Lahat"></th><th>Personnel</th><th>Company / Agency</th><th>Area</th><th>Time In</th><th>Status</th><th>Breaks Taken</th><th class="no-print">Action</th></tr></thead><tbody>${ins.map(r=>{
+    let b=openBrk(r),n=(r.breaks||[]).length;
+    return `<tr style="${b?'background:#fff8e7!important':''}">
+      <td class="no-print" style="text-align:center"><input type="checkbox" class="brk-chk" data-id="${r.id}" onchange="updateBatchBadge()"></td>
+      <td><b>${esc(r.person)}</b></td>
+      <td>${esc(r.agency)}</td>
+      <td><b>${esc(r.area)}</b>${shf(r)}</td>
+      <td>${fmt(tIn(r))}</td>
+      <td>${b?`<span class="status pending">☕ On Break since ${new Date(b.out).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span>`:'<span class="status verified">✔ Inside</span>'}</td>
+      <td>${n?n+' • '+dur(breakMs(r)):'—'}</td>
+      <td class="no-print">${b?`<button class="small" onclick="breakIn('${r.id}')">Break In</button>`:`<button class="small secondary" onclick="breakOut('${r.id}')">Break Out</button>`}</td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`:'<p class="muted">Walang personnel na tumutugma sa filter. Ang mga may “Allow Enter” decision lamang na hindi pa nag-Time Out ang makikita rito.</p>';
+
+  updateBatchBadge();
+
+  let log=[];
+  records.forEach(r=>(r.breaks||[]).forEach(b=>{if(ymd(new Date(b.out))===d)log.push({r,b})}));
+  log.sort((x,y)=>new Date(x.b.out)-new Date(y.b.out));
+
+  $('breakLog').innerHTML=log.length?`<div style="overflow:auto"><table><thead><tr><th>#</th><th>Personnel</th><th>Company / Agency</th><th>Area</th><th>Break Out</th><th>Break In</th><th>Duration</th><th>Loose Items at Break Out</th><th>Loose Items at Break In</th></tr></thead><tbody>${log.map((x,n)=>`<tr><td>${n+1}</td><td><b>${esc(x.r.person)}</b></td><td>${esc(x.r.agency)}</td><td>${esc(x.r.area||'—')}</td><td>${fmt(x.b.out)}</td><td>${x.b.in?fmt(x.b.in):'<span class="status pending">☕ On break</span>'}</td><td>${dur((x.b.in?new Date(x.b.in):new Date())-new Date(x.b.out))}</td><td>${esc(x.b.outItems||'—')}</td><td>${x.b.in?esc(x.b.inItems||'—'):'—'}</td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">No breaks logged on this date.</p>';
+}
+
+$('breakSearch').oninput=renderBreaks;
+$('breakDate').onchange=renderBreaks;
+if($('breakAreaFilter'))$('breakAreaFilter').onchange=renderBreaks;
+if($('breakStatusFilter'))$('breakStatusFilter').onchange=renderBreaks;
 
 let attGen=false;
 const DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
