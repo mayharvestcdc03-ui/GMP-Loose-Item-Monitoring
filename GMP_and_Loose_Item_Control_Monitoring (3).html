@@ -107,11 +107,61 @@ label.check{cursor:pointer}.check input{width:18px;height:18px;flex:none}
 
 <section id="verify" class="screen hidden">
 <div class="panel">
-<h2>Reviewer Verification</h2>
-<p class="muted">Registered personnel waiting for an entry decision are listed below. Tap a name to review it.</p>
+<h2>Reviewer Verification (Entry Approval Summary)</h2>
+<p class="muted">Summary ng mga bagong rehistrong personnel na naghihintay ng desisyon bago pumasok sa production / warehouse. Pindutin ang <b>Allow Enter</b> para mabilisang aprubahan o <b>Tingnan ang Deklarasyon</b> para masuri ang checklist at loose items.</p>
+
+<!-- Verifier Controls Bar -->
+<div class="no-print" style="background:#eaf5ee;border:1.5px solid #238052;border-radius:10px;padding:14px;margin-bottom:14px">
+  <div class="grid" style="align-items:flex-end">
+    <div class="field">
+      <label>Pangalan ng Verifier / Reviewer *</label>
+      <input id="globalVerifierName" placeholder="I-type ang iyong pangalan" style="font-weight:700">
+    </div>
+    <div class="field">
+      <label>Position / Role</label>
+      <input value="Production Line Inspector" readonly style="background:#f0f4f2;font-weight:600">
+    </div>
+    <div class="field" style="display:flex;align-items:flex-end">
+      <button type="button" onclick="batchApproveAllPending()" style="background:#16804a;color:#fff;font-weight:700;width:100%;height:39px">✔ Aprubahan Lahat (Allow Enter All)</button>
+    </div>
+  </div>
+
+  <!-- End of Shift Signature Pad -->
+  <details id="shiftSigDetails" style="margin-top:12px;background:#fff;border:1px solid #b7d6c2;border-radius:8px;padding:12px">
+    <summary style="cursor:pointer;font-weight:700;color:#124d35;font-size:12.5px">
+      ✍️ <b>End-of-Shift Signature Pad:</b> Pindutin ito para pumirma nang isahan sa shift (Awtomatikong maikakabit sa lahat ng inaprubahan mo)
+    </summary>
+    <div style="margin-top:10px">
+      <p class="muted" style="margin:0 0 6px">Maaaring pirmahan ito ngayon o bago matapos ang shift gamit ang daliri, stylus, o mouse:</p>
+      <canvas id="shiftVerifierCanvas" class="signature" style="height:140px;max-width:540px" aria-label="Draw signature"></canvas>
+      <div class="signature-tools" style="max-width:540px;margin-top:6px">
+        <span class="muted" id="shiftSigStatus">Hindi pa napipirmahan para sa shift na ito</span>
+        <button type="button" class="secondary small" onclick="clearShiftSig()">Burahin ang Pirma</button>
+      </div>
+    </div>
+  </details>
+</div>
+
+<!-- Pending Summary Table List -->
 <div id="pendingList"></div>
 </div>
 </section>
+
+<!-- Modal for Viewing Full Declaration & Checklist -->
+<div id="declModal" class="hidden no-print" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 10px 32px rgba(0,0,0,0.35)">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #176b45;padding-bottom:10px;margin-bottom:14px">
+      <h3 style="margin:0;color:#124d35;font-size:18px" id="modalTitle">Deklarasyon at GMP Checklist</h3>
+      <button type="button" onclick="closeDeclModal()" class="secondary small" style="font-size:14px;padding:4px 10px">✖ Isara</button>
+    </div>
+    <div id="modalBody"></div>
+    <div class="actions" style="margin-top:18px;justify-content:flex-end">
+      <button type="button" class="secondary" onclick="closeDeclModal()">Isara (Close)</button>
+      <button type="button" id="modalBtnReject" class="danger">✘ Not Permitted</button>
+      <button type="button" id="modalBtnApprove" style="background:#16804a;color:#fff;font-weight:700">✔ Allow Enter</button>
+    </div>
+  </div>
+</div>
 
 <section id="weekly" class="screen hidden">
 <div class="panel">
@@ -402,26 +452,219 @@ records.unshift(rec);save();if($('rememberP').checked)rememberPerson(rec);resetF
 };
 function resetForm(){$('areaOther').value='';$('areaOtherWrap').classList.add('hidden');$('agencyOther').value='';$('agencyOtherWrap').classList.add('hidden');['person','gmpRemarks'].forEach(id=>$(id).value='');['agency','area','shift','dress'].forEach(id=>$(id).selectedIndex=0);$('declaration').checked=false;$('rememberP').checked=true;$('spHint').textContent='';checks.forEach((_,i)=>$('g'+i).checked=false);$('looseList').innerHTML='';addLooseRow()}
 $('resetForm').onclick=resetForm;
-function refreshReview(){let p=records.filter(r=>r.status==='Pending Verification');
-$('pendingList').innerHTML=p.length?p.map((r,n)=>`<details ${n===0?'open':''} style="border:1px solid #cfdcd2;border-radius:8px;padding:10px 12px;margin-top:10px"><summary style="cursor:pointer;font-weight:700">${esc(r.person)} <span class="muted" style="font-weight:400">• ${esc(r.agency)} • ${esc(r.area)}${shf(r)} • Time In: ${fmt(tIn(r))}</span>${r.autoHold?' <span class="status rejected">GMP item not checked</span>':''}</summary><div style="margin-top:10px">${summaryHtml(r)}<div class="grid" style="margin-top:15px"><div class="field"><label>Verified By *</label><input id="vb_${r.id}" placeholder="Type name of verifier" value="${esc(localStorage.getItem('gmpLastVerifier')||'')}"></div><div class="field"><label>Entry Decision *</label><select id="dec_${r.id}" onchange="document.getElementById('rw_${r.id}').classList.toggle('hidden',this.value!=='Not Permitted')"><option value="">Select decision</option><option>Allow Enter</option><option>Not Permitted</option></select></div><div class="wide hidden" id="rw_${r.id}" style="grid-column:1/-1"><div class="field"><label>Violation Type *</label><select id="vt_${r.id}"><option value="">Select violation</option>${VIOLATIONS.map(v=>`<option>${v}</option>`).join('')}</select></div><div class="field" style="margin-top:10px"><label>Remarks * (why entry is not permitted)</label><textarea id="rem_${r.id}" placeholder="State the reason entry is not permitted."></textarea></div></div></div><div class="field" style="margin-top:12px;max-width:320px"><label>Position</label><input value="${ROLE}" readonly></div><h3>Reviewer Signature *</h3><canvas class="signature vsig" id="vs_${r.id}" style="height:160px" aria-label="Draw signature"></canvas><div class="signature-tools"><span class="muted">Sign here using finger, mouse, or stylus.</span><button type="button" class="secondary small" onclick="clearVSig('${r.id}')">Clear Signature</button></div><div class="actions"><button onclick="saveDecision('${r.id}')">Save Decision</button></div></div></details>`).join(''):'<p class="muted"><b>No pending registrations.</b></p>';initVSigs();document.querySelectorAll('#pendingList details').forEach(d=>d.addEventListener('toggle',initVSigs))}
-function initVSig(c){if(c.dataset.init||!c.clientWidth)return;c.dataset.init='1';let d=window.devicePixelRatio||1;c.width=c.clientWidth*d;c.height=c.clientHeight*d;let x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.lineWidth=2;x.lineCap='round';x.lineJoin='round';x.strokeStyle='#163d2b';let dr=false;const pt=e=>{let r=c.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}};
-c.addEventListener('pointerdown',e=>{dr=true;c.setPointerCapture(e.pointerId);let p=pt(e);x.beginPath();x.moveTo(p.x,p.y);x.lineTo(p.x+.1,p.y);x.stroke();c.dataset.has='1'});
-c.addEventListener('pointermove',e=>{if(!dr)return;let p=pt(e);x.lineTo(p.x,p.y);x.stroke()});
-['pointerup','pointercancel'].forEach(ev=>c.addEventListener(ev,()=>{dr=false}))}
-function initVSigs(){document.querySelectorAll('canvas.vsig').forEach(initVSig)}
-window.clearVSig=id=>{let c=$('vs_'+id);if(!c)return;let x=c.getContext('2d');x.save();x.setTransform(1,0,0,1,0,0);x.clearRect(0,0,c.width,c.height);x.restore();c.dataset.has=''};
+window.getVerifierName=function(){
+  let vInput=$('globalVerifierName');
+  let name=(vInput?vInput.value.trim():'')||localStorage.getItem('gmpLastVerifier')||'';
+  if(!name){
+    name=prompt('Pakilagay ang pangalan ng Verifier / Reviewer:');
+    if(name&&name.trim()){
+      name=name.trim();
+      if(vInput)vInput.value=name;
+      localStorage.setItem('gmpLastVerifier',name);
+    }
+  }else{
+    localStorage.setItem('gmpLastVerifier',name);
+  }
+  return name;
+};
+
+window.quickApprove=function(id){
+  let r=records.find(x=>x.id===id);
+  if(!r)return;
+  let vb=getVerifierName();
+  if(!vb)return;
+
+  r.status='Allow Enter';
+  r.verifiedBy=vb;
+  r.verifierRole=ROLE;
+  r.verifierSig=window.shiftVerifierSig||localStorage.getItem('gmpShiftVerifierSig')||'';
+  r.decidedAt=new Date().toISOString();
+  r.remarks='';
+  r.violation='';
+
+  save();
+  refreshReview();
+};
+
+window.batchApproveAllPending=function(){
+  let pending=records.filter(r=>r.status==='Pending Verification');
+  if(!pending.length){
+    alert('Walang pending registrations sa ngayon.');
+    return;
+  }
+  let vb=getVerifierName();
+  if(!vb)return;
+
+  if(!confirm('Kumpirmahin: Aprubahan ang LAHAT ng '+pending.length+' pending personnel (Allow Enter)?'))return;
+
+  let sig=window.shiftVerifierSig||localStorage.getItem('gmpShiftVerifierSig')||'';
+  let nowIso=new Date().toISOString();
+  pending.forEach(r=>{
+    r.status='Allow Enter';
+    r.verifiedBy=vb;
+    r.verifierRole=ROLE;
+    r.verifierSig=sig;
+    r.decidedAt=nowIso;
+    r.remarks='';
+    r.violation='';
+  });
+
+  save();
+  refreshReview();
+  alert('Tagumpay na naaprubahan ang '+pending.length+' personnel!');
+};
+
+window.quickReject=function(id){
+  let r=records.find(x=>x.id===id);
+  if(!r)return;
+  let vb=getVerifierName();
+  if(!vb)return;
+
+  let vPrompt='Pumili ng Uri ng Violation para kay '+r.person+':\n'+VIOLATIONS.map((v,i)=>`${i+1}. ${v}`).join('\n')+'\n\nI-type ang numero (1-'+VIOLATIONS.length+') o pangalan ng violation:';
+  let choice=prompt(vPrompt,'1');
+  if(choice===null)return;
+  let violation='';
+  let num=parseInt(choice,10);
+  if(!isNaN(num)&&num>=1&&num<=VIOLATIONS.length){
+    violation=VIOLATIONS[num-1];
+  }else{
+    violation=choice.trim()||'A8 - Others (Not mentioned)';
+  }
+
+  let remarks=prompt('Dahilan kung bakit hindi pinapayagan pumasok (Remarks):','Hindi nakapasa sa GMP checklist');
+  if(remarks===null)return;
+
+  r.status='Not Permitted';
+  r.violation=violation;
+  r.remarks=remarks.trim()||'Not permitted';
+  r.verifiedBy=vb;
+  r.verifierRole=ROLE;
+  r.verifierSig=window.shiftVerifierSig||localStorage.getItem('gmpShiftVerifierSig')||'';
+  r.decidedAt=new Date().toISOString();
+
+  save();
+  refreshReview();
+  alert(r.person+': Not Permitted — nai-record na sa GMP Violators.');
+  showTab('violators');
+};
+
+window.viewDeclaration=function(id){
+  let r=records.find(x=>x.id===id);
+  if(!r)return;
+  $('modalTitle').textContent='Deklarasyon at GMP Checklist: '+r.person;
+  $('modalBody').innerHTML=summaryHtml(r);
+  $('modalBtnApprove').onclick=()=>{closeDeclModal();quickApprove(id);};
+  $('modalBtnReject').onclick=()=>{closeDeclModal();quickReject(id);};
+  $('declModal').classList.remove('hidden');
+};
+
+window.closeDeclModal=function(){
+  $('declModal').classList.add('hidden');
+};
+
+function refreshReview(){
+  let vInput=$('globalVerifierName');
+  if(vInput&&!vInput.value){
+    vInput.value=localStorage.getItem('gmpLastVerifier')||'';
+    vInput.oninput=()=>localStorage.setItem('gmpLastVerifier',vInput.value.trim());
+  }
+
+  initShiftSig();
+
+  let p=records.filter(r=>r.status==='Pending Verification');
+  $('pendingList').innerHTML=p.length?`<div style="overflow:auto"><table><thead><tr><th style="width:36px;text-align:center">#</th><th>Pangalan (Personnel)</th><th>Kumpanya / Agency</th><th>Area & Shift</th><th>Oras (Time In)</th><th>GMP Checklist</th><th>Loose Items</th><th style="text-align:center">Deklarasyon</th><th class="no-print" style="text-align:center">Aksyon (Decision)</th></tr></thead><tbody>${p.map((r,n)=>{
+    let miss=(r.checks||[]).filter(c=>!c.ok).length;
+    let totalChecks=(r.checks||[]).length||13;
+    let passedCount=totalChecks-miss;
+    return `<tr>
+      <td style="text-align:center">${n+1}</td>
+      <td><b>${esc(r.person)}</b>${r.autoHold?'<br><span class="status rejected" style="font-size:10.5px">⚠️ May unchecked item</span>':''}</td>
+      <td>${esc(r.agency)}</td>
+      <td><b>${esc(r.area)}</b>${shf(r)}</td>
+      <td>${fmt(tIn(r))}</td>
+      <td>${miss===0?`<span class="status verified">✔ ${passedCount}/${totalChecks} Passed</span>`:`<span class="status rejected">⚠️ ${miss} Unchecked</span>`}</td>
+      <td><span style="font-size:11.5px">${esc(looseBrief(r.looseItemList||[]))||'None'}</span></td>
+      <td style="text-align:center">
+        <button type="button" class="small secondary" onclick="viewDeclaration('${r.id}')" style="font-weight:600;padding:5px 10px">🔍 Tingnan ang Deklarasyon</button>
+      </td>
+      <td class="no-print" style="white-space:nowrap;text-align:center">
+        <button type="button" class="small" onclick="quickApprove('${r.id}')" style="background:#16804a;color:#fff;font-weight:700;padding:6px 14px;margin-right:6px;border-radius:6px">✔ Allow Enter</button>
+        <button type="button" class="small danger" onclick="quickReject('${r.id}')" style="padding:6px 12px;border-radius:6px">✘ Not Permitted</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`:'<p class="muted"><b>Walang pending na registrations sa ngayon. Nakapasok na o naaprubahan na ang lahat.</b></p>';
+}
+
+let shiftCanvas=null;
+function initShiftSig(){
+  shiftCanvas=$('shiftVerifierCanvas');
+  if(!shiftCanvas||shiftCanvas.dataset.init)return;
+  shiftCanvas.dataset.init='1';
+  let d=window.devicePixelRatio||1;
+  shiftCanvas.width=shiftCanvas.clientWidth*d;
+  shiftCanvas.height=shiftCanvas.clientHeight*d;
+  let ctx=shiftCanvas.getContext('2d');
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.lineWidth=2;
+  ctx.lineCap='round';
+  ctx.lineJoin='round';
+  ctx.strokeStyle='#163d2b';
+  let dr=false;
+  const pt=e=>{let rect=shiftCanvas.getBoundingClientRect();return{x:e.clientX-rect.left,y:e.clientY-rect.top}};
+
+  let savedSig=localStorage.getItem('gmpShiftVerifierSig');
+  if(savedSig){
+    window.shiftVerifierSig=savedSig;
+    $('shiftSigStatus').textContent='✔ Naka-save ang pirma para sa shift na ito';
+    let img=new Image();
+    img.onload=()=>ctx.drawImage(img,0,0,shiftCanvas.clientWidth,shiftCanvas.clientHeight);
+    img.src=savedSig;
+    shiftCanvas.dataset.has='1';
+  }
+
+  shiftCanvas.addEventListener('pointerdown',e=>{
+    dr=true;shiftCanvas.setPointerCapture(e.pointerId);
+    let p=pt(e);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+.1,p.y);ctx.stroke();
+    shiftCanvas.dataset.has='1';
+  });
+  shiftCanvas.addEventListener('pointermove',e=>{if(!dr)return;let p=pt(e);ctx.lineTo(p.x,p.y);ctx.stroke();});
+  ['pointerup','pointercancel'].forEach(ev=>shiftCanvas.addEventListener(ev,()=>{
+    if(dr){
+      dr=false;
+      let sigData=shiftCanvas.toDataURL();
+      window.shiftVerifierSig=sigData;
+      localStorage.setItem('gmpShiftVerifierSig',sigData);
+      $('shiftSigStatus').textContent='✔ Pirma ay nai-save para sa shift na ito';
+      let vName=($('globalVerifierName')?.value||'').trim()||localStorage.getItem('gmpLastVerifier')||'';
+      let updatedCount=0;
+      records.forEach(rec=>{
+        if((rec.status==='Allow Enter'||rec.status==='Not Permitted')&&(!rec.verifierSig)&&(!vName||rec.verifiedBy===vName)){
+          rec.verifierSig=sigData;
+          updatedCount++;
+        }
+      });
+      if(updatedCount>0){
+        save();
+      }
+    }
+  }));
+}
+
+window.clearShiftSig=function(){
+  if(!shiftCanvas)return;
+  let ctx=shiftCanvas.getContext('2d');
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,shiftCanvas.width,shiftCanvas.height);ctx.restore();
+  shiftCanvas.dataset.has='';
+  window.shiftVerifierSig='';
+  localStorage.removeItem('gmpShiftVerifierSig');
+  $('shiftSigStatus').textContent='Pirma ay binura.';
+};
+
 const chkTable=r=>`<table><tr><th>Inspection Item</th><th>Result</th></tr>${r.checks.map(c=>`<tr><td>${esc(c.label)}</td><td style="font-weight:700;color:${c.ok?'#17633d':'#b42318'}">${c.ok?'✔ Checked':'✘ Not checked'}</td></tr>`).join('')}</table>`;
 function summaryHtml(r){return `<p><b>${esc(r.person)}</b> • ${esc(r.agency)} • ${esc(r.area)}${shf(r)}<br><span class="muted">Registered: ${new Date(r.timestamp).toLocaleString()} | Time In: ${fmt(tIn(r))}</span></p><h3>GMP Checklist</h3>${chkTable(r)}<h3>Declared Loose Items</h3>${itemsHtml(r)}<p><b>Registration remarks:</b> ${esc(r.gmpRemarks||'—')}</p>${r.autoHold?'<div class="note">One or more GMP checklist items were not ticked. Review before allowing entry.</div>':''}`}
 function looseText(r){return r.looseItems!==undefined?r.looseItems:(r.items||[]).map(i=>i.description+' x'+i.quantity).join(', ')}
 function looseDetail(r){return Array.isArray(r.looseItemList)&&r.looseItemList.length?r.looseItemList.map(i=>`${i.item} x${i.qty} — Condition: ${i.condition||'—'} | Disposition/Control: ${i.disposition||'—'}`).join('\n'):looseText(r)}
 function itemsHtml(r){if(Array.isArray(r.looseItemList)&&r.looseItemList.length)return `<table><tr><th>#</th><th>Item</th><th>Qty</th><th>Item Condition</th><th>Disposition / Control</th></tr>${r.looseItemList.map((i,n)=>`<tr><td>${n+1}</td><td>${esc(i.item)}</td><td>${esc(i.qty)}</td><td>${esc(i.condition||'—')}</td><td>${esc(i.disposition||'—')}</td></tr>`).join('')}</table>`;let t=looseText(r);return t?`<p style="white-space:pre-wrap">${esc(t)}</p>`:'<p>No loose items declared.</p>'}
-window.saveDecision=id=>{let r=records.find(x=>x.id===id);if(!r)return;let d=$('dec_'+id).value,rm=$('rem_'+id).value.trim(),vb=$('vb_'+id).value.trim();
-if(!vb){alert('Type the name of the person who verified this registration.');$('vb_'+id).focus();return}
-if(!d){alert('Select Allow Enter or Not Permitted.');return}
-let vc=$('vs_'+id);if(!vc||vc.dataset.has!=='1'){alert('Reviewer signature is required.');return}
-if(d==='Not Permitted'&&!$('vt_'+id).value){alert('Select the violation type.');$('vt_'+id).focus();return}
-if(d==='Not Permitted'&&!rm){alert('Remarks are required when entry is Not Permitted.');$('rem_'+id).focus();return}
-r.verifiedBy=vb;r.verifierRole=ROLE;r.verifierSig=vc.toDataURL();localStorage.setItem('gmpLastVerifier',vb);r.violation=d==='Not Permitted'?$('vt_'+id).value:'';r.status=d;r.remarks=d==='Not Permitted'?rm:'';r.decidedAt=new Date().toISOString();save();alert(r.person+': '+d+(d==='Not Permitted'?' — recorded in GMP Violators.':''));if(d==='Not Permitted')showTab('violators');else refreshReview()};
 const canvas=$('signature'),ctx=canvas.getContext('2d');let drawing=false,hasSig=false;
 function clearSig(){let d=window.devicePixelRatio||1;canvas.width=canvas.clientWidth*d;canvas.height=canvas.clientHeight*d;ctx.setTransform(d,0,0,d,0,0);ctx.lineWidth=2;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#163d2b';hasSig=false}
 function point(e){let r=canvas.getBoundingClientRect();return{x:e.clientX-r.left,y:e.clientY-r.top}}
