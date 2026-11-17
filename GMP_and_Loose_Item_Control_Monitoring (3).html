@@ -172,28 +172,28 @@ label.check{cursor:pointer}.check input{width:18px;height:18px;flex:none}
 <div class="field"><label>Break Log Date</label><input type="date" id="breakDate"></div>
 </div>
 
-<!-- Bultuhang / Batch Actions Bar -->
-<div class="no-print" style="background:#eaf5ee;border:1.5px solid #238052;border-radius:10px;padding:14px;margin:14px 0">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
-    <b style="font-size:14px;color:#124d35">⚡ Bultuhang Break Out / Break In (Per Area o Selected)</b>
-    <span id="batchCountBadge" class="status neutral" style="font-size:12px;font-weight:700">0 napili</span>
-  </div>
+<!-- Bultuhang / Batch Actions Bar (OPSYONAL) -->
+<details class="no-print" style="background:#f4faf6;border:1.5px solid #238052;border-radius:10px;padding:12px 16px;margin:14px 0">
+  <summary style="cursor:pointer;font-weight:700;color:#124d35;font-size:13px">
+    ⚡ <b>OPSYONAL:</b> Pindutin dito para sa Bultuhang Break Out / Break In (Per Area o Maramihan) — <i>Nandiyan pa rin po sa table sa ibaba ang pag-break bawat indibidwal</i>
+  </summary>
   
-  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <button type="button" class="secondary" id="btnSelectAllBreaks" onclick="toggleSelectAllBreaks()">Piliin Lahat (Select All)</button>
-    <button type="button" id="btnBatchBreakOut" onclick="batchBreakOutSelected()" style="background:#b9770e;color:#fff">☕ Sabay-sabay na Break Out (Selected)</button>
-    <button type="button" id="btnBatchBreakIn" onclick="batchBreakInSelected()" style="background:#16804a;color:#fff">🔙 Sabay-sabay na Break In (Selected)</button>
+  <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <span id="batchCountBadge" class="status neutral" style="font-size:12px;font-weight:700">0 napili sa checkboxes</span>
+    <button type="button" class="secondary small" id="btnSelectAllBreaks" onclick="toggleSelectAllBreaks()">Piliin Lahat (Select All)</button>
+    <button type="button" id="btnBatchBreakOut" onclick="batchBreakOutSelected()" class="small" style="background:#b9770e;color:#fff">☕ Sabay-sabay na Break Out (Selected)</button>
+    <button type="button" id="btnBatchBreakIn" onclick="batchBreakInSelected()" class="small" style="background:#16804a;color:#fff">🔙 Sabay-sabay na Break In (Selected)</button>
   </div>
 
   <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #9bc5aa;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <label style="font-size:12px;font-weight:700;color:#124d35">Isang Pindot para sa Buong Area:</label>
     <select id="quickAreaSelect" style="max-width:240px;min-height:36px;padding:6px 10px"><option value="">-- Pumili ng Area --</option></select>
-    <button type="button" onclick="breakOutEntireArea()" style="background:#9a6700;color:#fff;padding:8px 14px">☕ Break Out Buong Area</button>
-    <button type="button" onclick="breakInEntireArea()" style="background:#176b45;color:#fff;padding:8px 14px">🔙 Break In Buong Area</button>
+    <button type="button" class="small" onclick="breakOutEntireArea()" style="background:#9a6700;color:#fff">☕ Break Out Buong Area</button>
+    <button type="button" class="small" onclick="breakInEntireArea()" style="background:#176b45;color:#fff">🔙 Break In Buong Area</button>
   </div>
-</div>
+</details>
 
-<h3>Personnel Currently Inside / On Break</h3>
+<h3>Personnel Currently Inside / On Break <span class="muted" style="font-weight:400;font-size:12px">(Pindutin ang Break Out o Break In sa tapat ng bawat tao)</span></h3>
 <div id="breakInside"></div>
 <h3>Break Log</h3>
 <div id="breakLog"></div>
@@ -305,17 +305,57 @@ async function fetchServerData(){
     if(r.ok){let d=await r.json();if(d&&d.updatedAt&&d.updatedAt>lastServerUpdated)applyServerData(d)}
   }catch(e){console.warn('Fetch error:',e)}
 }
-function applyServerData(d){
+function mergeClientAndServer(srvRecords, locRecords){
+  let map=new Map();
+  (locRecords||[]).forEach(r=>{if(r&&r.id)map.set(r.id,r)});
+  (srvRecords||[]).forEach(r=>{
+    if(!r||!r.id)return;
+    if(!map.has(r.id)){
+      map.set(r.id,r);
+    }else{
+      let cur=map.get(r.id);
+      let merged={...cur,...r};
+      if(cur.status&&cur.status!=='Pending Verification'&&r.status==='Pending Verification'){
+        merged.status=cur.status;
+        merged.verifiedBy=cur.verifiedBy;
+        merged.verifierSig=cur.verifierSig;
+        merged.decidedAt=cur.decidedAt;
+        merged.violation=cur.violation;
+        merged.remarks=cur.remarks;
+      }
+      if(cur.timeOut&&!r.timeOut){
+        merged.timeOut=cur.timeOut;
+        merged.timeOutItems=cur.timeOutItems;
+      }
+      if((cur.breaks||[]).length>(r.breaks||[]).length){
+        merged.breaks=cur.breaks;
+      }
+      map.set(r.id,merged);
+    }
+  });
+  return Array.from(map.values()).sort((a,b)=>new Date(b.timestamp||0)-new Date(a.timestamp||0));
+}
+
+function applyServerData(d, fromSync){
   if(!d||!Array.isArray(d.records))return;
   lastServerUpdated=d.updatedAt||Date.now();
-  records=d.records;
-  if(d.weeks)weeks=d.weeks;
-  if(d.notedWeeks)notedWeeks=d.notedWeeks;
+  let localMissingOnServer = records.some(locR => !d.records.some(srvR => srvR.id === locR.id));
+  records = mergeClientAndServer(d.records, records);
+  if(d.weeks) weeks = { ...weeks, ...d.weeks };
+  if(d.notedWeeks) notedWeeks = { ...notedWeeks, ...d.notedWeeks };
   if(Array.isArray(d.sp)&&d.sp.length&&window.spSort){
-    window.SP=d.sp;window.spSort();window.spSaveLocal&&window.spSaveLocal();window.spRender&&window.spRender();
+    let spMap=new Map();
+    [...(window.SP||[]),...d.sp].forEach(p=>{if(p&&p.name)spMap.set(p.name.trim().toLowerCase(),p)});
+    window.SP=Array.from(spMap.values());
+    window.spSort();
+    window.spSaveLocal&&window.spSaveLocal();
+    window.spRender&&window.spRender();
   }
   saveLocal();
   renderActiveTab();
+  if(localMissingOnServer && !fromSync){
+    syncToServer();
+  }
 }
 function renderActiveTab(){
   if(currentTab==='verify')refreshReview();
@@ -612,7 +652,7 @@ function renderBreaks(){
       <td>${fmt(tIn(r))}</td>
       <td>${b?`<span class="status pending">☕ On Break since ${new Date(b.out).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</span>`:'<span class="status verified">✔ Inside</span>'}</td>
       <td>${n?n+' • '+dur(breakMs(r)):'—'}</td>
-      <td class="no-print">${b?`<button class="small" onclick="breakIn('${r.id}')">Break In</button>`:`<button class="small secondary" onclick="breakOut('${r.id}')">Break Out</button>`}</td>
+      <td class="no-print" style="white-space:nowrap">${b?`<button class="small" onclick="breakIn('${r.id}')" style="background:#16804a;color:#fff;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer">🔙 Break In</button>`:`<button class="small" onclick="breakOut('${r.id}')" style="background:#b9770e;color:#fff;font-weight:700;padding:6px 14px;border-radius:6px;cursor:pointer">☕ Break Out</button>`}</td>
     </tr>`;
   }).join('')}</tbody></table></div>`:'<p class="muted">Walang personnel na tumutugma sa filter. Ang mga may “Allow Enter” decision lamang na hindi pa nag-Time Out ang makikita rito.</p>';
 
