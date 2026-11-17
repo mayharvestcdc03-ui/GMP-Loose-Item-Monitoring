@@ -261,13 +261,50 @@ function nowLocal(){let d=new Date();return ymd(d)+'T'+String(d.getHours()).padS
 let records=JSON.parse(localStorage.getItem('gmpLooseItemRecords')||'[]'),weeks=JSON.parse(localStorage.getItem('gmpWeeklyReviews')||'{}'),notedWeeks=JSON.parse(localStorage.getItem('gmpWeeklyNoted')||'{}'),currentReport=null,att=JSON.parse(localStorage.getItem('gmpAttendanceRecords')||'{}');
 records.forEach(r=>{if(r.status==='Verified - Entry Authorized')r.status='Allow Enter';else if(r.status==='Rejected - Entry Not Authorized')r.status='Not Permitted';else if(r.status==='Returned for Correction')r.status='Pending Verification';if(!r.agency)r.agency=r.dept||'—';if(r.agency==='Top Jinzi')r.agency='Top Jinzai';r.checks.forEach(c=>{if(c.ok===undefined)c.ok=c.checked&&c.result!=='Fail'})});
 $('gmpChecks').innerHTML=checks.map((c,i)=>`<label class="check"><input type="checkbox" id="g${i}"><span>${c}</span></label>`).join('');
-function save(){syncAtt();localStorage.setItem('gmpLooseItemRecords',JSON.stringify(records));localStorage.setItem('gmpWeeklyReviews',JSON.stringify(weeks));localStorage.setItem('gmpWeeklyNoted',JSON.stringify(notedWeeks))}
+let currentTab='register',lastServerUpdated=0,isSyncing=false;
+function saveLocal(){syncAtt();localStorage.setItem('gmpLooseItemRecords',JSON.stringify(records));localStorage.setItem('gmpWeeklyReviews',JSON.stringify(weeks));localStorage.setItem('gmpWeeklyNoted',JSON.stringify(notedWeeks))}
+function save(){saveLocal();syncToServer()}
+async function syncToServer(){
+  if(isSyncing)return;isSyncing=true;
+  try{
+    let p={records,weeks,notedWeeks,sp:window.SP||[]};
+    let r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
+    if(r.ok){let d=await r.json();applyServerData(d)}
+  }catch(e){console.warn('Sync error:',e)}finally{isSyncing=false}
+}
+async function fetchServerData(){
+  try{
+    let r=await fetch('/api/data?t='+Date.now());
+    if(r.ok){let d=await r.json();if(d&&d.updatedAt&&d.updatedAt>lastServerUpdated)applyServerData(d)}
+  }catch(e){console.warn('Fetch error:',e)}
+}
+function applyServerData(d){
+  if(!d||!Array.isArray(d.records))return;
+  lastServerUpdated=d.updatedAt||Date.now();
+  records=d.records;
+  if(d.weeks)weeks=d.weeks;
+  if(d.notedWeeks)notedWeeks=d.notedWeeks;
+  if(Array.isArray(d.sp)&&d.sp.length&&window.spSort){
+    window.SP=d.sp;window.spSort();window.spSaveLocal&&window.spSaveLocal();window.spRender&&window.spRender();
+  }
+  saveLocal();
+  renderActiveTab();
+}
+function renderActiveTab(){
+  if(currentTab==='verify')refreshReview();
+  else if(currentTab==='records')renderRecords();
+  else if(currentTab==='violators')renderViolators();
+  else if(currentTab==='breaks')renderBreaks();
+  else if(currentTab==='attendance')renderAttendance();
+  else if(currentTab==='daily')renderDaily();
+  else if(currentTab==='monthly')renderMonthly();
+}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 function wk(d){d=new Date(d);d=new Date(d.getFullYear(),d.getMonth(),d.getDate());d.setDate(d.getDate()-(d.getDay()+6)%7);return ymd(d)}
 function wkLabel(k){let s=new Date(k+'T00:00:00'),e=new Date(s);e.setDate(e.getDate()+6);let f=x=>x.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});return f(s)+' – '+f(e)}
 const wr=r=>weeks[wk(r.timestamp)];const nb=r=>notedWeeks[wk(r.timestamp)];
-function showTab(tab){document.querySelectorAll('.screen').forEach(x=>x.classList.add('hidden'));$('report').classList.add('hidden');$(tab).classList.remove('hidden');document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='verify')refreshReview();if(tab==='weekly')initWeekly();if(tab==='noted')initNoted();if(tab==='records')renderRecords();if(tab==='violators')renderViolators();if(tab==='daily')renderDaily();if(tab==='monthly')renderMonthly();if(tab==='breaks')renderBreaks();if(tab==='attendance')renderAttendance()}
+function showTab(tab){currentTab=tab;document.querySelectorAll('.screen').forEach(x=>x.classList.add('hidden'));$('report').classList.add('hidden');$(tab).classList.remove('hidden');document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));if(tab==='verify')refreshReview();if(tab==='weekly')initWeekly();if(tab==='noted')initNoted();if(tab==='records')renderRecords();if(tab==='violators')renderViolators();if(tab==='daily')renderDaily();if(tab==='monthly')renderMonthly();if(tab==='breaks')renderBreaks();if(tab==='attendance')renderAttendance()}
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 
 const LOOSE_OPTS=['Ballpen','Clip board','Cellphone','Calculator','Paper','Eyeglasses','Test strip','Thermometer','Weighing scale','Flashlight','Inspection mirror','Others'];
@@ -374,7 +411,7 @@ return `<div style="text-align:center;border-bottom:2px solid #176b45;padding-bo
 $('clearAll').onclick=()=>{if(!records.length&&!Object.keys(weeks).length&&!Object.keys(notedWeeks).length){alert('There are no records to clear.');return}
 if(!confirm('This will permanently delete ALL records, weekly reviews, Noted By signatures, and the GMP Violators list on this browser. Download the CSV first if you need a backup. Continue?'))return;
 if((prompt('Type CLEAR to confirm.')||'').trim().toUpperCase()!=='CLEAR'){alert('Cancelled. Nothing was deleted.');return}
-records=[];weeks={};notedWeeks={};save();renderRecords();alert('All records cleared.')};
+records=[];weeks={};notedWeeks={};saveLocal();fetch('/api/clear',{method:'POST'}).catch(()=>{});renderRecords();alert('All records cleared.')};
 $('exportAllPdf').onclick=()=>{$('records').classList.add('hidden');$('report').classList.remove('hidden');$('reportContent').innerHTML=fullReportHtml();window.scrollTo(0,0)};
 $('exportCsv').onclick=()=>{let rows=[['Timestamp','Personnel','Company / Agency','Area','Shift','Time In','Time Out','Break Out / Break In','Loose Items at Time Out','GMP Checklist','Loose Items','Entry Decision','Violation','Remarks','Verified By','Week Covered','Weekly Reviewed By','Review Timestamp','Weekly Noted By','Noted By Position','Noted Timestamp']];shown().forEach(r=>{let w=wr(r),nt=nb(r);rows.push([new Date(r.timestamp).toLocaleString(),r.person,r.agency,r.area,r.shift||'',fmt(tIn(r)),r.timeOut?fmt(r.timeOut):'',brkText(r),r.timeOutItems||'',r.checks.map(c=>c.label+': '+(c.ok?'Checked':'Not checked')).join('; '),looseDetail(r).replace(/\n/g,'; '),r.status,r.violation||'',r.remarks||'',r.verifiedBy||'',wkLabel(wk(r.timestamp)),w?.name||'',w?new Date(w.signedAt).toLocaleString():'',nt?.name||'',nt?.dept||'',nt?new Date(nt.signedAt).toLocaleString():''])});let csv=rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='GMP_Loose_Item_Monitoring.csv';a.click();URL.revokeObjectURL(a.href)};
 $('filterViolation').innerHTML='<option value="">All violations</option>'+VIOLATIONS.map(v=>`<option>${v}</option>`).join('');
@@ -488,9 +525,13 @@ syncAtt();
 
 /* ===== Regular personnel: remembered name + agency ===== */
 let SP=[];try{SP=JSON.parse(localStorage.getItem('gmpSavedPersonnel')||'[]')}catch(e){}
+window.SP=SP;
 const spKey=n=>nm({person:n});
-const spSave=()=>{try{localStorage.setItem('gmpSavedPersonnel',JSON.stringify(SP))}catch(e){}};
+const spSaveLocal=()=>{try{localStorage.setItem('gmpSavedPersonnel',JSON.stringify(SP))}catch(e){}};
+const spSave=()=>{spSaveLocal();syncToServer()};
+window.spSaveLocal=spSaveLocal;
 const spSort=()=>SP.sort((x,y)=>x.name.localeCompare(y.name));
+window.spSort=spSort;
 function spSplit(a){let m=String(a||'').match(/^Others \((.*)\)$/);return m?{agency:'Others',other:m[1]}:{agency:a||'',other:''}}
 function rememberPerson(rec){let k=spKey(rec.person),a=spSplit(rec.agency),o={name:rec.person,agency:a.agency,other:a.other},i=SP.findIndex(x=>spKey(x.name)===k);if(i>=0)SP[i]=o;else SP.push(o);spSort();spSave();spRender()}
 function spRender(){$('spList').innerHTML=SP.map(x=>`<option value="${esc(x.name)}" label="${esc(x.agency==='Others'?x.other||'Others':x.agency)}"></option>`).join('');$('spCount').textContent=SP.length;
@@ -499,6 +540,13 @@ window.spRemove=i=>{if(!SP[i]||!confirm('Remove '+SP[i].name+' from saved person
 $('person').addEventListener('input',()=>{let x=SP.find(p=>spKey(p.name)===spKey($('person').value)),h=$('spHint');if(!x){h.textContent='';return}$('agency').value=x.agency;$('agency').dispatchEvent(new Event('change'));if(x.agency==='Others')$('agencyOther').value=x.other;h.textContent='Saved personnel — company / agency filled in automatically.'});
 if(!localStorage.getItem('gmpSavedPersonnelSeeded')){records.forEach(r=>{if(!r.person)return;if(!SP.some(x=>spKey(x.name)===spKey(r.person))){let a=spSplit(r.agency);SP.push({name:r.person,agency:a.agency,other:a.other})}});spSort();spSave();try{localStorage.setItem('gmpSavedPersonnelSeeded','1')}catch(e){}}
 spRender();
+window.spRender=spRender;
+
+// Server Sync & Background Polling
+fetchServerData().then(()=>{
+  if(records.length>0)syncToServer();
+});
+setInterval(fetchServerData,3500);
 
 function updateClock(){let el=$('runningClock');if(!el)return;let d=new Date(),optD={weekday:'short',year:'numeric',month:'short',day:'numeric'},optT={hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true};el.textContent=d.toLocaleDateString('en-US',optD)+' • '+d.toLocaleTimeString('en-US',optT)}
 setInterval(updateClock,1000);updateClock();
