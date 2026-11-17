@@ -1,0 +1,17 @@
+{
+  "name": "gmp-loose-item-monitoring",
+  "version": "1.0.0",
+  "description": "GMP and Loose Item Control Monitoring - May Harvest Corporation",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "gmp",
+    "loose-item",
+    "monitoring",
+    "may-harvest"
+  ],
+  "author": "May Harvest Corporation",
+  "license": "UNLICENSED"
+}
