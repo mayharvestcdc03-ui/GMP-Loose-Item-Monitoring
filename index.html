@@ -4,12 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GMP AND LOOSE ITEM CONTROL MONITORING</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--green:#176b45;--green2:#eaf5ee;--ink:#20312a;--muted:#64736b;--line:#d7e2da;--red:#b42318;--amber:#9a6700}
 *{box-sizing:border-box}body{margin:0;background:#f3f7f4;color:var(--ink);font:14px/1.45 Arial,sans-serif}
 header{background:linear-gradient(120deg,#124d35,#218052);color:white;padding:25px max(20px,calc((100% - 1200px)/2))}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
 .header-right{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex:none}
+.sync-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:5px 12px;font-size:11.5px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,.15);transition:all .2s ease}
 .running-clock-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:5px 12px;font-size:11.5px;font-weight:700;color:#fff;font-variant-numeric:tabular-nums;box-shadow:0 2px 5px rgba(0,0,0,.15)}
 .running-clock-badge .clock-icon{font-size:12px}
 .docbox{background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.85);border-radius:6px;padding:6px 12px;box-shadow:0 2px 6px rgba(0,0,0,.15);flex:none}
@@ -53,7 +55,7 @@ label.check{cursor:pointer}.check input{width:18px;height:18px;flex:none}
 </style>
 </head>
 <body>
-<header><div class="brand"><img id="mhcLogo" alt="May Harvest Corporation logo"><div><div class="co">MAY HARVEST CORPORATION</div><h1>GMP AND LOOSE ITEM CONTROL MONITORING</h1><p>Personnel entry inspection • Loose item declaration • Independent verification</p></div></div><div class="header-right"><div class="running-clock-badge" id="runningClockWrap"><span class="clock-icon">🕒</span><span id="runningClock">Loading date & time...</span></div><div class="docbox"><table class="doc-table"><tr><td class="dt-lbl">Document Code:</td><td class="dt-val">QAC001</td></tr><tr><td class="dt-lbl">Revision #:</td><td class="dt-val">03</td></tr><tr><td class="dt-lbl">Effectivity Date:</td><td class="dt-val">December 01, 2026</td></tr></table></div></div></header>
+<header><div class="brand"><img id="mhcLogo" alt="May Harvest Corporation logo"><div><div class="co">MAY HARVEST CORPORATION</div><h1>GMP AND LOOSE ITEM CONTROL MONITORING</h1><p>Personnel entry inspection • Loose item declaration • Independent verification</p></div></div><div class="header-right"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><div class="sync-badge" id="syncBadge">🟢 Cloud Synced</div><div class="running-clock-badge" id="runningClockWrap"><span class="clock-icon">🕒</span><span id="runningClock">Loading date & time...</span></div></div><div class="docbox"><table class="doc-table"><tr><td class="dt-lbl">Document Code:</td><td class="dt-val">QAC001</td></tr><tr><td class="dt-lbl">Revision #:</td><td class="dt-val">03</td></tr><tr><td class="dt-lbl">Effectivity Date:</td><td class="dt-val">December 01, 2026</td></tr></table></div></div></header>
 <main>
 <div class="tabs no-print">
 <button class="tab active" data-tab="register">Personnel Registration</button>
@@ -338,23 +340,149 @@ function nowLocal(){let d=new Date();return ymd(d)+'T'+String(d.getHours()).padS
 let records=JSON.parse(localStorage.getItem('gmpLooseItemRecords')||'[]'),weeks=JSON.parse(localStorage.getItem('gmpWeeklyReviews')||'{}'),notedWeeks=JSON.parse(localStorage.getItem('gmpWeeklyNoted')||'{}'),currentReport=null,att=JSON.parse(localStorage.getItem('gmpAttendanceRecords')||'{}');
 records.forEach(r=>{if(r.status==='Verified - Entry Authorized')r.status='Allow Enter';else if(r.status==='Rejected - Entry Not Authorized')r.status='Not Permitted';else if(r.status==='Returned for Correction')r.status='Pending Verification';if(!r.agency)r.agency=r.dept||'—';if(r.agency==='Top Jinzi')r.agency='Top Jinzai';r.checks.forEach(c=>{if(c.ok===undefined)c.ok=c.checked&&c.result!=='Fail'})});
 $('gmpChecks').innerHTML=checks.map((c,i)=>`<label class="check"><input type="checkbox" id="g${i}"><span>${c}</span></label>`).join('');
+// Supabase Cloud Sync Configuration
+const SUPABASE_URL = 'https://svquyjpguhrmhzbgynsw.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_J6udCVSr_aA2_LYp5QcSGQ_hMFu_wMA';
+let supabaseClient = null;
+try {
+  if (window.supabase && window.supabase.createClient) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('[MHC] Supabase GMP Loose Item Cloud Sync initialized!');
+  }
+} catch(e) {}
+
 let currentTab='register',lastServerUpdated=0,isSyncing=false;
-function saveLocal(){syncAtt();localStorage.setItem('gmpLooseItemRecords',JSON.stringify(records));localStorage.setItem('gmpWeeklyReviews',JSON.stringify(weeks));localStorage.setItem('gmpWeeklyNoted',JSON.stringify(notedWeeks))}
-function save(){saveLocal();syncToServer()}
+
+function setSyncBadge(status, text){
+  const el = document.getElementById('syncBadge');
+  if(!el) return;
+  if(status === 'synced'){
+    el.textContent = '🟢 ' + (text || 'Cloud Synced');
+    el.style.background = 'rgba(255,255,255,0.18)';
+  } else if(status === 'syncing'){
+    el.textContent = '🟡 ' + (text || 'Saving to cloud...');
+    el.style.background = 'rgba(255,200,55,0.35)';
+  } else {
+    el.textContent = '🔴 ' + (text || 'Offline Mode');
+    el.style.background = 'rgba(220,53,69,0.35)';
+  }
+}
+
+function getFullPayload(){
+  return {
+    records: records || [],
+    weeks: weeks || {},
+    notedWeeks: notedWeeks || {},
+    sp: window.SP || [],
+    updatedAt: Date.now()
+  };
+}
+
+function saveLocal(){
+  syncAtt();
+  localStorage.setItem('gmpLooseItemRecords', JSON.stringify(records));
+  localStorage.setItem('gmpWeeklyReviews', JSON.stringify(weeks));
+  localStorage.setItem('gmpWeeklyNoted', JSON.stringify(notedWeeks));
+}
+
+let syncDebounce = null;
+function save(){
+  saveLocal();
+  const isEditing = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+  if(!isEditing){ renderActiveTab(); }
+  clearTimeout(syncDebounce);
+  syncDebounce = setTimeout(syncToServer, 300);
+}
+
 async function syncToServer(){
-  if(isSyncing)return;isSyncing=true;
-  try{
-    let p={records,weeks,notedWeeks,sp:window.SP||[]};
-    let r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
-    if(r.ok){let d=await r.json();applyServerData(d)}
-  }catch(e){console.warn('Sync error:',e)}finally{isSyncing=false}
+  if(isSyncing) return;
+  isSyncing = true;
+  setSyncBadge('syncing', 'Saving to cloud...');
+  try {
+    const payload = getFullPayload();
+    let cloudSaved = false;
+
+    // 1. Save to Supabase Cloud DB (accessible across Render and Cloudflare)
+    if(supabaseClient){
+      try {
+        const { error } = await supabaseClient.from('party_sync').upsert({
+          room: 'gmp_loose_item',
+          data: payload,
+          updated_at: new Date().toISOString()
+        });
+        if(!error) cloudSaved = true;
+      } catch(e) {
+        console.warn('[MHC] Supabase sync error:', e);
+      }
+    }
+
+    // 2. Also save to Render / Node server if reachable
+    try {
+      let r = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if(r.ok){
+        let d = await r.json();
+        cloudSaved = true;
+        applyServerData(d, true);
+      }
+    } catch(e) {}
+
+    if(cloudSaved){
+      setSyncBadge('synced', 'Cloud Synced');
+    } else {
+      setSyncBadge('synced', 'Saved Locally');
+    }
+  } catch(e) {
+    console.warn('Sync error:', e);
+    setSyncBadge('offline', 'Offline Mode');
+  } finally {
+    isSyncing = false;
+  }
 }
+
 async function fetchServerData(){
-  try{
-    let r=await fetch('/api/data?t='+Date.now());
-    if(r.ok){let d=await r.json();if(d&&d.updatedAt&&d.updatedAt>lastServerUpdated)applyServerData(d)}
-  }catch(e){console.warn('Fetch error:',e)}
+  try {
+    let cloudData = null;
+
+    // 1. Pull from Supabase first
+    if(supabaseClient){
+      try {
+        const { data: sRow, error } = await supabaseClient
+          .from('party_sync')
+          .select('data')
+          .eq('room', 'gmp_loose_item')
+          .single();
+        if(!error && sRow && sRow.data && (sRow.data.records || sRow.data.weeks || sRow.data.sp)){
+          cloudData = sRow.data;
+        }
+      } catch(e) {}
+    }
+
+    // 2. Fallback to local / Render server
+    if(!cloudData){
+      try {
+        let r = await fetch('/api/data?t=' + Date.now());
+        if(r.ok){
+          let d = await r.json();
+          if(d && (d.records || d.weeks || d.sp)){
+            cloudData = d;
+          }
+        }
+      } catch(e) {}
+    }
+
+    if(cloudData){
+      applyServerData(cloudData);
+      setSyncBadge('synced', 'Cloud Synced');
+    }
+  } catch(e) {
+    console.warn('Fetch error:', e);
+  }
 }
+
 function mergeClientAndServer(srvRecords, locRecords){
   let map=new Map();
   (locRecords||[]).forEach(r=>{if(r&&r.id)map.set(r.id,r)});
@@ -971,6 +1099,20 @@ window.spRender=spRender;
 fetchServerData().then(()=>{
   if(records.length>0)syncToServer();
 });
+// Supabase Realtime Listener for instantaneous sync
+if(supabaseClient){
+  try {
+    supabaseClient
+      .channel('realtime_gmp_loose_item')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'party_sync', filter: 'room=eq.gmp_loose_item' }, payload => {
+        if(payload.new && payload.new.data){
+          applyServerData(payload.new.data, true);
+        }
+      })
+      .subscribe();
+  } catch(e) {}
+}
+
 setInterval(fetchServerData,3500);
 
 function updateClock(){let el=$('runningClock');if(!el)return;let d=new Date(),optD={weekday:'short',year:'numeric',month:'short',day:'numeric'},optT={hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:true};el.textContent=d.toLocaleDateString('en-US',optD)+' • '+d.toLocaleTimeString('en-US',optT)}

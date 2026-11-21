@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: gmp-loose-item-monitoring
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
